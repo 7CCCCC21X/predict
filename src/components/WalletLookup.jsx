@@ -1,7 +1,5 @@
-import { useState, useEffect, useRef, useContext } from "react";
-import { ConfigCtx } from "../config";
+import { useState, useEffect, useRef } from "react";
 import { apiFetch } from "../api";
-import { MOCK_POSITIONS } from "../mocks";
 import { T, mono, sans } from "../theme";
 import { StatBox, Spinner } from "./ui";
 
@@ -55,46 +53,33 @@ const subTitleStyle = { fontSize: 10, color: T.textDim, fontFamily: mono, margin
 const pnlBase = { fontSize: 15, fontFamily: mono, fontWeight: 700 };
 
 export default function WalletLookup() {
-  const { live } = useContext(ConfigCtx);
   const [addr, setAddr] = useState("");
   const [pos, setPos] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const abortRef = useRef(null);
-  const timerRef = useRef(null);
 
-  useEffect(
-    () => () => {
-      abortRef.current?.abort();
-      if (timerRef.current) clearTimeout(timerRef.current);
-    },
-    []
-  );
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const lookup = async () => {
-    if (!addr) return;
-    setLoading(true);
-    setError(null);
-    if (!live) {
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => {
-        setPos(MOCK_POSITIONS);
-        setLoading(false);
-      }, 400);
-      return;
-    }
+    const q = addr.trim();
+    if (!q) return;
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
-    const data = await apiFetch(`/positions/${addr}`, { signal: ctrl.signal });
-    if (ctrl.signal.aborted) return;
-    if (data) {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiFetch(`/positions/${encodeURIComponent(q)}`, { signal: ctrl.signal });
+      if (ctrl.signal.aborted) return;
       setPos(data.data || (Array.isArray(data) ? data : []));
-    } else {
-      setError("查询失败");
+    } catch (e) {
+      if (e.name === "AbortError") return;
+      setError(e.message);
       setPos([]);
+    } finally {
+      if (!ctrl.signal.aborted) setLoading(false);
     }
-    setLoading(false);
   };
 
   const totalPnl = pos ? pos.reduce((s, p) => s + (p.pnl || 0), 0) : 0;
@@ -113,7 +98,7 @@ export default function WalletLookup() {
           查询
         </button>
       </div>
-      {error && <div style={errorStyle}>{error}</div>}
+      {error && <div style={errorStyle}>查询失败: {error}</div>}
       {loading && <Spinner />}
       {pos && !loading && (
         <>
@@ -126,7 +111,7 @@ export default function WalletLookup() {
             />
           </div>
           {pos.length === 0 ? (
-            <div style={emptyStyle}>该地址暂无持仓</div>
+            <div style={emptyStyle}>{error ? "—" : "该地址暂无持仓"}</div>
           ) : (
             <div style={listStyle}>
               {pos.map((p, i) => (

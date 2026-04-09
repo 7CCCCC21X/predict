@@ -1,9 +1,7 @@
-import { useState, useEffect, useMemo, useCallback, useContext } from "react";
-import { ConfigCtx } from "../config";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { apiFetch } from "../api";
-import { MOCK_MARKETS } from "../mocks";
 import { T, mono, sans } from "../theme";
-import { Pill, StatBox, Spinner, Hint } from "./ui";
+import { Pill, StatBox, Spinner } from "./ui";
 
 const toolbarStyle = {
   display: "flex",
@@ -45,6 +43,13 @@ const errorStyle = {
   fontFamily: mono,
   color: T.red,
 };
+const emptyStyle = {
+  textAlign: "center",
+  padding: 40,
+  color: T.textDim,
+  fontFamily: mono,
+  fontSize: 12,
+};
 const listStyle = { display: "flex", flexDirection: "column", gap: 6 };
 const cardStyle = {
   display: "flex",
@@ -83,48 +88,42 @@ function outcomeColors(i) {
 }
 
 export default function MarketMonitor() {
-  const { live } = useContext(ConfigCtx);
-  const [markets, setMarkets] = useState(MOCK_MARKETS);
-  const [loading, setLoading] = useState(false);
+  const [markets, setMarkets] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [sortBy, setSortBy] = useState("volume");
   const [search, setSearch] = useState("");
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [error, setError] = useState(null);
+  const abortRef = useRef(null);
 
-  const fetchLive = useCallback(async (signal) => {
+  const fetchMarkets = useCallback(async () => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     setLoading(true);
     setError(null);
-    const data = await apiFetch("/v1/markets?limit=50&status=active", { signal });
-    if (signal?.aborted) return;
-    if (data) {
-      const list = data.data || (Array.isArray(data) ? data : []);
-      if (list.length > 0) setMarkets(list);
-      else setError("API returned empty");
-    } else {
-      setError("API request failed");
+    try {
+      const data = await apiFetch("/v1/markets?limit=50&status=active", { signal: ctrl.signal });
+      if (ctrl.signal.aborted) return;
+      setMarkets(data.data || (Array.isArray(data) ? data : []));
+    } catch (e) {
+      if (e.name === "AbortError") return;
+      setError(e.message);
+    } finally {
+      if (!ctrl.signal.aborted) setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   useEffect(() => {
-    if (!live) {
-      setMarkets(MOCK_MARKETS);
-      return;
-    }
-    const ctrl = new AbortController();
-    fetchLive(ctrl.signal);
-    return () => ctrl.abort();
-  }, [live, fetchLive]);
+    fetchMarkets();
+    return () => abortRef.current?.abort();
+  }, [fetchMarkets]);
 
   useEffect(() => {
-    if (!live || !autoRefresh) return;
-    const ctrl = new AbortController();
-    const id = setInterval(() => fetchLive(ctrl.signal), 30000);
-    return () => {
-      clearInterval(id);
-      ctrl.abort();
-    };
-  }, [live, autoRefresh, fetchLive]);
+    if (!autoRefresh) return;
+    const id = setInterval(fetchMarkets, 30000);
+    return () => clearInterval(id);
+  }, [autoRefresh, fetchMarkets]);
 
   const sorted = useMemo(() => {
     let l = markets;
@@ -156,11 +155,9 @@ export default function MarketMonitor() {
         <Pill active={autoRefresh} onClick={() => setAutoRefresh(!autoRefresh)}>
           自动刷新 {autoRefresh ? "ON" : "OFF"}
         </Pill>
-        {live && (
-          <button type="button" onClick={() => fetchLive()} style={refreshBtnStyle}>
-            刷新
-          </button>
-        )}
+        <button type="button" onClick={fetchMarkets} style={refreshBtnStyle}>
+          刷新
+        </button>
       </div>
 
       <div style={statRowStyle}>
@@ -168,10 +165,12 @@ export default function MarketMonitor() {
         <StatBox label="筛选" value={sorted.length} />
       </div>
 
-      {error && <div style={errorStyle}>{error}</div>}
+      {error && <div style={errorStyle}>加载失败: {error}</div>}
 
       {loading ? (
         <Spinner />
+      ) : sorted.length === 0 ? (
+        <div style={emptyStyle}>{error ? "—" : "暂无市场"}</div>
       ) : (
         <div style={listStyle}>
           {sorted.map((m) => {
@@ -202,8 +201,6 @@ export default function MarketMonitor() {
           })}
         </div>
       )}
-
-      {!live && <Hint>MOCK 模式 — 部署后切 LIVE 调用 GET /v1/markets</Hint>}
     </div>
   );
 }

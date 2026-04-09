@@ -1,9 +1,7 @@
-import { useState, useEffect, useMemo, useContext } from "react";
-import { ConfigCtx } from "../config";
+import { useState, useEffect, useMemo } from "react";
 import { apiFetch } from "../api";
-import { MOCK_MARKETS } from "../mocks";
 import { T, mono, sans } from "../theme";
-import { Pill, StatBox } from "./ui";
+import { Pill, StatBox, Spinner } from "./ui";
 
 const filterRowStyle = { display: "flex", gap: 8, marginBottom: 16 };
 const statRowStyle = { display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap" };
@@ -31,26 +29,46 @@ const dateBase = {
   flexShrink: 0,
   marginLeft: 12,
 };
+const errorStyle = {
+  padding: 12,
+  marginBottom: 12,
+  background: T.redDim,
+  border: `1px solid ${T.red}33`,
+  borderRadius: 8,
+  fontSize: 11,
+  fontFamily: mono,
+  color: T.red,
+};
+const emptyStyle = {
+  textAlign: "center",
+  padding: 40,
+  color: T.textDim,
+  fontFamily: mono,
+  fontSize: 12,
+};
 
 export default function SettlementCalendar() {
-  const { live } = useContext(ConfigCtx);
-  const [markets, setMarkets] = useState(MOCK_MARKETS);
+  const [markets, setMarkets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [filter, setFilter] = useState("all");
 
   useEffect(() => {
-    if (!live) {
-      setMarkets(MOCK_MARKETS);
-      return;
-    }
     const ctrl = new AbortController();
     (async () => {
-      const data = await apiFetch("/v1/markets?limit=200", { signal: ctrl.signal });
-      if (ctrl.signal.aborted) return;
-      const list = data?.data || (Array.isArray(data) ? data : []);
-      if (list.length > 0) setMarkets(list);
+      try {
+        const data = await apiFetch("/v1/markets?limit=200", { signal: ctrl.signal });
+        if (ctrl.signal.aborted) return;
+        setMarkets(data.data || (Array.isArray(data) ? data : []));
+      } catch (e) {
+        if (e.name === "AbortError") return;
+        setError(e.message);
+      } finally {
+        if (!ctrl.signal.aborted) setLoading(false);
+      }
     })();
     return () => ctrl.abort();
-  }, [live]);
+  }, []);
 
   const { filtered, todayN, todayStr } = useMemo(() => {
     const now = new Date();
@@ -97,32 +115,39 @@ export default function SettlementCalendar() {
           color={todayN > 0 ? T.red : T.textDim}
         />
       </div>
-      <div style={listStyle}>
-        {filtered.map(({ m, d }, i) => {
-          const isToday = d.toDateString() === todayStr;
-          const isSoon = d - new Date() < 7 * 864e5;
-          return (
-            <div
-              key={m.id || i}
-              style={{
-                ...rowBase,
-                background: isToday ? T.redDim : T.surfaceAlt,
-                border: `1px solid ${isToday ? `${T.red}33` : T.border}`,
-              }}
-            >
-              <span style={titleStyle}>{m.title || m.question || m.id}</span>
-              <span
+      {error && <div style={errorStyle}>加载失败: {error}</div>}
+      {loading ? (
+        <Spinner />
+      ) : filtered.length === 0 ? (
+        <div style={emptyStyle}>{error ? "—" : "暂无即将结算的市场"}</div>
+      ) : (
+        <div style={listStyle}>
+          {filtered.map(({ m, d }, i) => {
+            const isToday = d.toDateString() === todayStr;
+            const isSoon = d - new Date() < 7 * 864e5;
+            return (
+              <div
+                key={m.id || i}
                 style={{
-                  ...dateBase,
-                  color: isToday ? T.red : isSoon ? T.yellow : T.textDim,
+                  ...rowBase,
+                  background: isToday ? T.redDim : T.surfaceAlt,
+                  border: `1px solid ${isToday ? `${T.red}33` : T.border}`,
                 }}
               >
-                {d.toLocaleDateString()}
-              </span>
-            </div>
-          );
-        })}
-      </div>
+                <span style={titleStyle}>{m.title || m.question || m.id}</span>
+                <span
+                  style={{
+                    ...dateBase,
+                    color: isToday ? T.red : isSoon ? T.yellow : T.textDim,
+                  }}
+                >
+                  {d.toLocaleDateString()}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,7 +1,5 @@
-import { useState, useEffect, useMemo, useContext } from "react";
-import { ConfigCtx } from "../config";
+import { useState, useEffect, useMemo } from "react";
 import { apiFetch } from "../api";
-import { MOCK_MATCHES } from "../mocks";
 import { T, mono } from "../theme";
 import { Spinner, Badge } from "./ui";
 
@@ -54,33 +52,50 @@ const sideCellStyle = { padding: "8px 12px" };
 const amtCellBase = { padding: "8px 12px", fontWeight: 600 };
 const priceCellStyle = { padding: "8px 12px", color: T.yellow };
 const addrCellStyle = { padding: "8px 12px", color: T.textDim, fontSize: 10 };
+const errorStyle = {
+  padding: 12,
+  marginBottom: 12,
+  background: T.redDim,
+  border: `1px solid ${T.red}33`,
+  borderRadius: 8,
+  fontSize: 11,
+  fontFamily: mono,
+  color: T.red,
+};
+const emptyStyle = {
+  textAlign: "center",
+  padding: 40,
+  color: T.textDim,
+  fontFamily: mono,
+  fontSize: 12,
+};
 
 const HEADERS = ["时间", "市场", "方向", "金额", "价格", "交易者"];
 
 export default function OrderFlow() {
-  const { live } = useContext(ConfigCtx);
-  const [matches, setMatches] = useState(MOCK_MATCHES);
-  const [loading, setLoading] = useState(false);
+  const [matches, setMatches] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [min, setMin] = useState(100);
 
   useEffect(() => {
-    if (!live) {
-      setMatches(MOCK_MATCHES);
-      return;
-    }
     const ctrl = new AbortController();
     (async () => {
-      setLoading(true);
-      const data = await apiFetch("/v1/orders/matches?limit=100", {
-        signal: ctrl.signal,
-      });
-      if (ctrl.signal.aborted) return;
-      const list = data?.data || (Array.isArray(data) ? data : []);
-      if (list.length > 0) setMatches(list);
-      setLoading(false);
+      try {
+        const data = await apiFetch("/v1/orders/matches?limit=100", {
+          signal: ctrl.signal,
+        });
+        if (ctrl.signal.aborted) return;
+        setMatches(data.data || (Array.isArray(data) ? data : []));
+      } catch (e) {
+        if (e.name === "AbortError") return;
+        setError(e.message);
+      } finally {
+        if (!ctrl.signal.aborted) setLoading(false);
+      }
     })();
     return () => ctrl.abort();
-  }, [live]);
+  }, []);
 
   const filtered = useMemo(
     () => matches.filter((m) => (m.amount || m.filledAmount || 0) >= min),
@@ -104,8 +119,11 @@ export default function OrderFlow() {
         <Badge color={T.yellow}>{bigCount} 大单 (&gt;$5K)</Badge>
         <Badge>{matches.length} 总成交</Badge>
       </div>
+      {error && <div style={errorStyle}>加载失败: {error}</div>}
       {loading ? (
         <Spinner />
+      ) : filtered.length === 0 ? (
+        <div style={emptyStyle}>{error ? "—" : "暂无成交"}</div>
       ) : (
         <div style={wrapStyle}>
           <table style={tableStyle}>

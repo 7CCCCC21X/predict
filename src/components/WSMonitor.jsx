@@ -1,5 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useContext } from "react";
-import { ConfigCtx } from "../config";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { T, mono } from "../theme";
 import { Badge } from "./ui";
 
@@ -67,14 +66,13 @@ const timeStyle = { color: T.textMuted };
 const msgStyle = { color: T.text, wordBreak: "break-all" };
 
 const LC = { system: T.blue, in: T.accent, out: T.yellow, error: T.red };
+const WS_URL = "wss://ws.predict.fun/ws";
 
 export default function WSMonitor() {
-  const { live } = useContext(ConfigCtx);
   const [mktId, setMktId] = useState("mkt_003");
   const [connected, setConnected] = useState(false);
   const [logs, setLogs] = useState([]);
   const wsRef = useRef(null);
-  const intRef = useRef(null);
   const endRef = useRef(null);
 
   useEffect(() => {
@@ -88,70 +86,47 @@ export default function WSMonitor() {
   const teardown = useCallback(() => {
     wsRef.current?.close();
     wsRef.current = null;
-    if (intRef.current) {
-      clearInterval(intRef.current);
-      intRef.current = null;
-    }
     setConnected(false);
   }, []);
 
-  // Tear down on live toggle or unmount so user can reconnect in the new mode.
-  useEffect(() => () => teardown(), [live, teardown]);
+  useEffect(() => () => teardown(), [teardown]);
 
   const connect = () => {
     if (!mktId) return;
-    if (live) {
-      try {
-        const ws = new WebSocket("wss://ws.predict.fun/ws");
-        wsRef.current = ws;
-        ws.onopen = () => {
-          setConnected(true);
-          addLog("system", "已连接");
-          ws.send(
-            JSON.stringify({
-              method: "subscribe",
-              requestId: `sub_${Date.now()}`,
-              params: { topics: [`predictOrderbook/${mktId}`] },
-            })
-          );
-          addLog("out", `订阅 predictOrderbook/${mktId}`);
-        };
-        ws.onmessage = (e) => {
-          try {
-            const msg = JSON.parse(e.data);
-            if (msg.method === "heartbeat") {
-              ws.send(JSON.stringify({ method: "heartbeat", data: msg.data }));
-              return;
-            }
-            addLog("in", JSON.stringify(msg).slice(0, 400));
-          } catch {
-            addLog("in", e.data?.slice?.(0, 400) || "binary");
-          }
-        };
-        ws.onclose = () => {
-          setConnected(false);
-          addLog("system", "已关闭");
-        };
-        ws.onerror = () => addLog("error", "连接错误");
-      } catch (e) {
-        addLog("error", e.message);
-      }
-    } else {
-      setConnected(true);
-      addLog("system", "[MOCK] 模拟连接");
-      addLog("in", `{"status":"subscribed","topic":"predictOrderbook/${mktId}"}`);
-      intRef.current = setInterval(() => {
-        const side = Math.random() > 0.5 ? "bid" : "ask";
-        const pr = (Math.random() * 0.4 + 0.5).toFixed(3);
-        const sz = Math.floor(Math.random() * 5000 + 100);
-        addLog(
-          "in",
+    try {
+      const ws = new WebSocket(WS_URL);
+      wsRef.current = ws;
+      ws.onopen = () => {
+        setConnected(true);
+        addLog("system", "已连接");
+        ws.send(
           JSON.stringify({
-            topic: `predictOrderbook/${mktId}`,
-            data: { side, price: pr, size: sz, ts: Date.now() },
+            method: "subscribe",
+            requestId: `sub_${Date.now()}`,
+            params: { topics: [`predictOrderbook/${mktId}`] },
           })
         );
-      }, 2500);
+        addLog("out", `订阅 predictOrderbook/${mktId}`);
+      };
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.method === "heartbeat") {
+            ws.send(JSON.stringify({ method: "heartbeat", data: msg.data }));
+            return;
+          }
+          addLog("in", JSON.stringify(msg).slice(0, 400));
+        } catch {
+          addLog("in", e.data?.slice?.(0, 400) || "binary");
+        }
+      };
+      ws.onclose = () => {
+        setConnected(false);
+        addLog("system", "已关闭");
+      };
+      ws.onerror = () => addLog("error", "连接错误");
+    } catch (e) {
+      addLog("error", e.message);
     }
   };
 

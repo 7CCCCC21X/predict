@@ -1,7 +1,5 @@
-import { useState, useEffect, useMemo, useContext } from "react";
-import { ConfigCtx } from "../config";
+import { useState, useEffect, useMemo } from "react";
 import { apiFetch } from "../api";
-import { MOCK_MARKETS } from "../mocks";
 import { T, mono } from "../theme";
 import { Spinner, Badge } from "./ui";
 
@@ -34,32 +32,49 @@ const titleCellStyle = {
 };
 const volCellStyle = { padding: "10px 12px", color: T.accent, fontWeight: 600 };
 const badgeCellStyle = { padding: "10px 12px" };
+const errorStyle = {
+  padding: 12,
+  marginBottom: 12,
+  background: T.redDim,
+  border: `1px solid ${T.red}33`,
+  borderRadius: 8,
+  fontSize: 11,
+  fontFamily: mono,
+  color: T.red,
+};
+const emptyStyle = {
+  textAlign: "center",
+  padding: 40,
+  color: T.textDim,
+  fontFamily: mono,
+  fontSize: 12,
+};
 
 const HEADERS = ["#", "市场", "交易量", "成交数"];
 
 export default function VolumeRanking() {
-  const { live } = useContext(ConfigCtx);
-  const [markets, setMarkets] = useState(MOCK_MARKETS);
-  const [loading, setLoading] = useState(false);
+  const [markets, setMarkets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (!live) {
-      setMarkets(MOCK_MARKETS);
-      return;
-    }
     const ctrl = new AbortController();
     (async () => {
-      setLoading(true);
-      const data = await apiFetch("/v1/markets?limit=100&status=active", {
-        signal: ctrl.signal,
-      });
-      if (ctrl.signal.aborted) return;
-      const list = data?.data || (Array.isArray(data) ? data : []);
-      if (list.length > 0) setMarkets(list);
-      setLoading(false);
+      try {
+        const data = await apiFetch("/v1/markets?limit=100&status=active", {
+          signal: ctrl.signal,
+        });
+        if (ctrl.signal.aborted) return;
+        setMarkets(data.data || (Array.isArray(data) ? data : []));
+      } catch (e) {
+        if (e.name === "AbortError") return;
+        setError(e.message);
+      } finally {
+        if (!ctrl.signal.aborted) setLoading(false);
+      }
     })();
     return () => ctrl.abort();
-  }, [live]);
+  }, []);
 
   const sorted = useMemo(
     () => [...markets].sort((a, b) => (b.volume || 0) - (a.volume || 0)),
@@ -69,32 +84,39 @@ export default function VolumeRanking() {
   if (loading) return <Spinner />;
 
   return (
-    <div style={wrapStyle}>
-      <table style={tableStyle}>
-        <thead>
-          <tr style={theadRowStyle}>
-            {HEADERS.map((h) => (
-              <th key={h} style={thStyle}>
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((m, i) => (
-            <tr key={m.id || i} style={tdRowStyle}>
-              <td style={{ ...rankCellBase, color: i < 3 ? T.accent : T.textDim }}>
-                {i + 1}
-              </td>
-              <td style={titleCellStyle}>{m.title || m.question || m.id}</td>
-              <td style={volCellStyle}>${(m.volume || 0).toLocaleString()}</td>
-              <td style={badgeCellStyle}>
-                <Badge>{m.stats?.trades || "—"} trades</Badge>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div>
+      {error && <div style={errorStyle}>加载失败: {error}</div>}
+      {sorted.length === 0 ? (
+        <div style={emptyStyle}>{error ? "—" : "暂无数据"}</div>
+      ) : (
+        <div style={wrapStyle}>
+          <table style={tableStyle}>
+            <thead>
+              <tr style={theadRowStyle}>
+                {HEADERS.map((h) => (
+                  <th key={h} style={thStyle}>
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((m, i) => (
+                <tr key={m.id || i} style={tdRowStyle}>
+                  <td style={{ ...rankCellBase, color: i < 3 ? T.accent : T.textDim }}>
+                    {i + 1}
+                  </td>
+                  <td style={titleCellStyle}>{m.title || m.question || m.id}</td>
+                  <td style={volCellStyle}>${(m.volume || 0).toLocaleString()}</td>
+                  <td style={badgeCellStyle}>
+                    <Badge>{m.stats?.trades || "—"} trades</Badge>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

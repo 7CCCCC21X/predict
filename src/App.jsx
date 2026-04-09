@@ -1,5 +1,4 @@
 import { useState, lazy, Suspense } from "react";
-import { ConfigCtx } from "./config";
 import { T, mono, sans } from "./theme";
 import { Spinner } from "./components/ui";
 
@@ -58,20 +57,23 @@ const brandName = {
   fontWeight: 700,
   letterSpacing: -0.5,
 };
-const liveBtnBase = {
+const liveBadgeStyle = {
   display: "flex",
   alignItems: "center",
   gap: 6,
-  padding: "5px 14px",
+  padding: "5px 12px",
   borderRadius: 6,
+  border: `1px solid ${T.accent}44`,
+  background: T.accentDim,
+  color: T.accent,
   fontFamily: mono,
   fontSize: 11,
-  cursor: "pointer",
 };
-const liveDotBase = {
+const liveDotStyle = {
   width: 8,
   height: 8,
   borderRadius: "50%",
+  background: T.accent,
   display: "inline-block",
 };
 const bodyStyle = { display: "flex", minHeight: "calc(100vh - 53px)" };
@@ -132,82 +134,70 @@ const mainTitleIcon = { color: T.accent };
 
 export default function App() {
   const [tab, setTab] = useState("monitor");
-  const [live, setLive] = useState(false);
 
   const active = TABS.find((t) => t.id === tab);
   const ActiveComp = active?.Comp;
 
   return (
-    <ConfigCtx.Provider value={{ live }}>
-      <div style={shellStyle}>
-        <header style={headerStyle}>
-          <div style={brandRow}>
-            <div style={brandLogo}>P</div>
-            <span style={brandName}>
-              Predict<span style={{ color: T.accent }}>.dash</span>
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setLive(!live)}
-            style={{
-              ...liveBtnBase,
-              border: `1px solid ${live ? T.accent : T.yellow}44`,
-              background: live ? T.accentDim : `${T.yellow}12`,
-              color: live ? T.accent : T.yellow,
-            }}
-          >
-            <span style={{ ...liveDotBase, background: live ? T.accent : T.yellow }} />
-            {live ? "LIVE" : "MOCK"}
-          </button>
-        </header>
-
-        <div style={bodyStyle}>
-          <nav style={navStyle}>
-            {TABS.map((t) => {
-              const isActive = tab === t.id;
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setTab(t.id)}
-                  style={{
-                    ...navBtnBase,
-                    background: isActive ? T.accentDim : "transparent",
-                    color: isActive ? T.accent : T.textDim,
-                    fontWeight: isActive ? 600 : 400,
-                  }}
-                >
-                  <span style={navIconStyle}>{t.icon}</span>
-                  {t.label}
-                </button>
-              );
-            })}
-            <div style={apiInfoStyle}>
-              <div style={apiInfoLabel}>API</div>
-              <div style={apiInfoList}>
-                监控→/v1/markets
-                <br />
-                排名→/markets/stats
-                <br />
-                订单→/orders/matches
-                <br />
-                钱包→/positions/addr
-                <br />
-                WS→wss://ws…/ws
-              </div>
-            </div>
-          </nav>
-
-          <main style={mainStyle}>
-            <h2 style={mainTitleStyle}>
-              <span style={mainTitleIcon}>{active?.icon}</span>
-              {active?.label}
-            </h2>
-            <Suspense fallback={<Spinner />}>{ActiveComp && <ActiveComp />}</Suspense>
-          </main>
+    <div style={shellStyle}>
+      <header style={headerStyle}>
+        <div style={brandRow}>
+          <div style={brandLogo}>P</div>
+          <span style={brandName}>
+            Predict<span style={{ color: T.accent }}>.dash</span>
+          </span>
         </div>
+        <span style={liveBadgeStyle}>
+          <span style={liveDotStyle} />
+          LIVE
+        </span>
+      </header>
+
+      <div style={bodyStyle}>
+        <nav style={navStyle}>
+          {TABS.map((t) => {
+            const isActive = tab === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTab(t.id)}
+                style={{
+                  ...navBtnBase,
+                  background: isActive ? T.accentDim : "transparent",
+                  color: isActive ? T.accent : T.textDim,
+                  fontWeight: isActive ? 600 : 400,
+                }}
+              >
+                <span style={navIconStyle}>{t.icon}</span>
+                {t.label}
+              </button>
+            );
+          })}
+          <div style={apiInfoStyle}>
+            <div style={apiInfoLabel}>API</div>
+            <div style={apiInfoList}>
+              监控→/v1/markets
+              <br />
+              排名→/markets/stats
+              <br />
+              订单→/orders/matches
+              <br />
+              钱包→/positions/addr
+              <br />
+              WS→wss://ws…/ws
+            </div>
+          </div>
+        </nav>
+
+        <main style={mainStyle}>
+          <h2 style={mainTitleStyle}>
+            <span style={mainTitleIcon}>{active?.icon}</span>
+            {active?.label}
+          </h2>
+          <Suspense fallback={<Spinner />}>{ActiveComp && <ActiveComp />}</Suspense>
+        </main>
       </div>
-    </ConfigCtx.Provider>
+    </div>
   );
 }
