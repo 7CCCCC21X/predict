@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { apiFetch } from "../api";
+import { apiFetch, unwrapList } from "../api";
 import { T, mono, sans } from "../theme";
 import { Pill, StatBox, Spinner } from "./ui";
 
@@ -103,9 +103,9 @@ export default function MarketMonitor() {
     setLoading(true);
     setError(null);
     try {
-      const data = await apiFetch("/v1/markets?limit=50&status=active", { signal: ctrl.signal });
+      const data = await apiFetch("/v1/markets?first=50", { signal: ctrl.signal });
       if (ctrl.signal.aborted) return;
-      setMarkets(data.data || (Array.isArray(data) ? data : []));
+      setMarkets(unwrapList(data));
     } catch (e) {
       if (e.name === "AbortError") return;
       setError(e.message);

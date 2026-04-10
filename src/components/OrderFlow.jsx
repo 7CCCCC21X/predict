@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { apiFetch } from "../api";
+import { apiFetch, unwrapList } from "../api";
 import { T, mono } from "../theme";
 import { Spinner, Badge } from "./ui";
 
@@ -86,7 +86,7 @@ export default function OrderFlow() {
           signal: ctrl.signal,
         });
         if (ctrl.signal.aborted) return;
-        setMatches(data.data || (Array.isArray(data) ? data : []));
+        setMatches(unwrapList(data));
       } catch (e) {
         if (e.name === "AbortError") return;
         setError(e.message);

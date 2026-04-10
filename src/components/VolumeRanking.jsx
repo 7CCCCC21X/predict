@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { apiFetch } from "../api";
+import { apiFetch, unwrapList } from "../api";
 import { T, mono } from "../theme";
 import { Spinner, Badge } from "./ui";
 
@@ -61,11 +61,11 @@ export default function VolumeRanking() {
     const ctrl = new AbortController();
     (async () => {
       try {
-        const data = await apiFetch("/v1/markets?limit=100&status=active", {
+        const data = await apiFetch("/v1/markets?first=100", {
           signal: ctrl.signal,
         });
         if (ctrl.signal.aborted) return;
-        setMarkets(data.data || (Array.isArray(data) ? data : []));
+        setMarkets(unwrapList(data));
       } catch (e) {
         if (e.name === "AbortError") return;
         setError(e.message);

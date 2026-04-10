@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { apiFetch } from "../api";
+import { apiFetch, unwrapList } from "../api";
 import { T, mono, sans } from "../theme";
 import { StatBox, Spinner } from "./ui";
 
@@ -72,7 +72,7 @@ export default function WalletLookup() {
     try {
       const data = await apiFetch(`/positions/${encodeURIComponent(q)}`, { signal: ctrl.signal });
       if (ctrl.signal.aborted) return;
-      setPos(data.data || (Array.isArray(data) ? data : []));
+      setPos(unwrapList(data));
     } catch (e) {
       if (e.name === "AbortError") return;
       setError(e.message);

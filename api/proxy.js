@@ -18,6 +18,13 @@ export default async function handler(req, res) {
     return res.status(204).end();
   }
 
+  if (!API_KEY) {
+    return res.status(503).json({
+      error: 'Proxy misconfigured',
+      message: 'PREDICT_API_KEY env var is not set for this deployment environment',
+    });
+  }
+
   try {
     const host = req.headers.host || 'localhost';
     const proto = req.headers['x-forwarded-proto'] || (host.startsWith('localhost') ? 'http' : 'https');
