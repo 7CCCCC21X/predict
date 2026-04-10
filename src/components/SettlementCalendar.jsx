@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from "react";
 import { apiFetch, unwrapList } from "../api";
 import { T, mono, sans } from "../theme";
-import { Pill, StatBox, Spinner } from "./ui";
+import { Pill, StatBox, Spinner, Badge } from "./ui";
 
-const filterRowStyle = { display: "flex", gap: 8, marginBottom: 16 };
+const filterRowStyle = { display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" };
 const statRowStyle = { display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap" };
 const listStyle = { display: "flex", flexDirection: "column", gap: 6 };
 const rowBase = {
@@ -12,22 +12,28 @@ const rowBase = {
   alignItems: "center",
   padding: "10px 16px",
   borderRadius: 8,
+  background: T.surfaceAlt,
+  border: `1px solid ${T.border}`,
+  gap: 12,
 };
 const titleStyle = {
   fontSize: 12,
   fontFamily: sans,
   color: T.text,
   flex: 1,
+  minWidth: 0,
   overflow: "hidden",
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
 };
-const dateBase = {
-  fontSize: 11,
-  fontFamily: mono,
-  fontWeight: 600,
+const rightStyle = {
+  display: "flex",
+  gap: 6,
   flexShrink: 0,
-  marginLeft: 12,
+  alignItems: "center",
+  fontSize: 10,
+  fontFamily: mono,
+  color: T.textDim,
 };
 const errorStyle = {
   padding: 12,
@@ -46,12 +52,32 @@ const emptyStyle = {
   fontFamily: mono,
   fontSize: 12,
 };
+const noteStyle = {
+  marginBottom: 12,
+  padding: 10,
+  background: `${T.blue}08`,
+  border: `1px solid ${T.blue}20`,
+  borderRadius: 6,
+  fontSize: 10,
+  fontFamily: mono,
+  color: T.blue,
+};
+
+function timeSince(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  const diff = Date.now() - d.getTime();
+  const h = Math.floor(diff / 3600000);
+  if (h < 1) return "<1h";
+  if (h < 24) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
+}
 
 export default function SettlementCalendar() {
   const [markets, setMarkets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState("open");
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -70,82 +96,60 @@ export default function SettlementCalendar() {
     return () => ctrl.abort();
   }, []);
 
-  const { filtered, todayN, todayStr } = useMemo(() => {
-    const now = new Date();
-    const eow = new Date(now);
-    eow.setDate(now.getDate() + (7 - now.getDay()));
-    eow.setHours(23, 59, 59, 999);
-    const eom = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-    const todayStr = now.toDateString();
-
-    const items = [];
-    let todayN = 0;
+  const { filtered, openN, closedN } = useMemo(() => {
+    let openN = 0;
+    let closedN = 0;
     for (const m of markets) {
-      const raw = m.cutoffAt || m.endDate;
-      if (!raw) continue;
-      const d = new Date(raw);
-      if (d.toDateString() === todayStr) todayN++;
-      if (d < now) continue;
-      if (filter === "week" && d > eow) continue;
-      if (filter === "month" && d > eom) continue;
-      items.push({ m, d });
+      if (m.tradingStatus === "OPEN") openN++;
+      else if (m.tradingStatus === "CLOSED") closedN++;
     }
-    items.sort((a, b) => a.d - b.d);
-    return { filtered: items, todayN, todayStr };
+    let l = markets;
+    if (filter === "open") l = markets.filter((m) => m.tradingStatus === "OPEN");
+    else if (filter === "resolved") l = markets.filter((m) => m.status === "RESOLVED");
+    const copy = [...l];
+    copy.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    return { filtered: copy, openN, closedN };
   }, [markets, filter]);
 
   return (
     <div>
+      <div style={noteStyle}>
+        API 未返回结算截止时间字段。此视图按 tradingStatus/status 过滤并按创建时间倒序展示。
+      </div>
       <div style={filterRowStyle}>
+        <Pill active={filter === "open"} onClick={() => setFilter("open")}>
+          活跃
+        </Pill>
+        <Pill active={filter === "resolved"} onClick={() => setFilter("resolved")}>
+          已结算
+        </Pill>
         <Pill active={filter === "all"} onClick={() => setFilter("all")}>
           全部
         </Pill>
-        <Pill active={filter === "week"} onClick={() => setFilter("week")}>
-          本周
-        </Pill>
-        <Pill active={filter === "month"} onClick={() => setFilter("month")}>
-          本月
-        </Pill>
       </div>
       <div style={statRowStyle}>
-        <StatBox label="即将结算" value={filtered.length} color={T.yellow} />
-        <StatBox
-          label="今日结算"
-          value={todayN}
-          color={todayN > 0 ? T.red : T.textDim}
-        />
+        <StatBox label="活跃" value={openN} color={T.accent} />
+        <StatBox label="已关闭" value={closedN} color={T.textMuted} />
+        <StatBox label="筛选" value={filtered.length} color={T.yellow} />
       </div>
       {error && <div style={errorStyle}>加载失败: {error}</div>}
       {loading ? (
         <Spinner />
       ) : filtered.length === 0 ? (
-        <div style={emptyStyle}>{error ? "—" : "暂无即将结算的市场"}</div>
+        <div style={emptyStyle}>{error ? "—" : "没有符合条件的市场"}</div>
       ) : (
         <div style={listStyle}>
-          {filtered.map(({ m, d }, i) => {
-            const isToday = d.toDateString() === todayStr;
-            const isSoon = d - new Date() < 7 * 864e5;
-            return (
-              <div
-                key={m.id || i}
-                style={{
-                  ...rowBase,
-                  background: isToday ? T.redDim : T.surfaceAlt,
-                  border: `1px solid ${isToday ? `${T.red}33` : T.border}`,
-                }}
-              >
-                <span style={titleStyle}>{m.title || m.question || m.id}</span>
-                <span
-                  style={{
-                    ...dateBase,
-                    color: isToday ? T.red : isSoon ? T.yellow : T.textDim,
-                  }}
-                >
-                  {d.toLocaleDateString()}
-                </span>
+          {filtered.map((m) => (
+            <div key={m.id} style={rowBase}>
+              <span style={titleStyle}>{m.question || m.title || `#${m.id}`}</span>
+              <div style={rightStyle}>
+                <Badge color={m.tradingStatus === "OPEN" ? T.accent : T.textMuted}>
+                  {m.tradingStatus || "—"}
+                </Badge>
+                <span>{timeSince(m.createdAt)}</span>
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       )}
     </div>

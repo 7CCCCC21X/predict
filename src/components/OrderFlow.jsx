@@ -12,7 +12,7 @@ const toolbarStyle = {
 };
 const labelStyle = { fontSize: 11, color: T.textDim, fontFamily: mono };
 const minInputStyle = {
-  width: 80,
+  width: 90,
   padding: "6px 10px",
   background: T.surfaceAlt,
   border: `1px solid ${T.border}`,
@@ -70,7 +70,15 @@ const emptyStyle = {
   fontSize: 12,
 };
 
-const HEADERS = ["时间", "市场", "方向", "金额", "价格", "交易者"];
+const HEADERS = ["时间", "市场", "角色", "金额", "价格", "签名地址"];
+
+// valueUsdtWei is a 6-decimal USDT wei value per predict.fun docs.
+function weiToUsd(wei) {
+  if (wei == null) return 0;
+  const n = typeof wei === "string" ? Number(wei) : wei;
+  if (!isFinite(n)) return 0;
+  return n / 1e6;
+}
 
 export default function OrderFlow() {
   const [matches, setMatches] = useState([]);
@@ -82,7 +90,7 @@ export default function OrderFlow() {
     const ctrl = new AbortController();
     (async () => {
       try {
-        const data = await apiFetch("/v1/orders/matches?limit=100", {
+        const data = await apiFetch("/v1/orders/matches?first=100", {
           signal: ctrl.signal,
         });
         if (ctrl.signal.aborted) return;
@@ -97,14 +105,22 @@ export default function OrderFlow() {
     return () => ctrl.abort();
   }, []);
 
-  const filtered = useMemo(
-    () => matches.filter((m) => (m.amount || m.filledAmount || 0) >= min),
-    [matches, min]
-  );
-  const bigCount = useMemo(
-    () => matches.filter((m) => (m.amount || m.filledAmount || 0) >= 5000).length,
+  const rows = useMemo(
+    () =>
+      matches.map((m) => ({
+        id: m.id || m.conditionId || `${m.marketId}-${m.executedAt}`,
+        ts: m.executedAt || m.timestamp || m.createdAt,
+        marketLabel: m.marketTitle || m.marketQuestion || `#${m.marketId || "—"}`,
+        isMaker: !!m.isSignerMaker,
+        usd: weiToUsd(m.valueUsdtWei || m.amount || m.filledAmount),
+        price: m.price != null ? Number(m.price) : null,
+        addr: m.signerAddress || m.taker || m.maker || "",
+      })),
     [matches]
   );
+
+  const filtered = useMemo(() => rows.filter((r) => r.usd >= min), [rows, min]);
+  const bigCount = useMemo(() => rows.filter((r) => r.usd >= 5000).length, [rows]);
 
   return (
     <div>
@@ -123,7 +139,7 @@ export default function OrderFlow() {
       {loading ? (
         <Spinner />
       ) : filtered.length === 0 ? (
-        <div style={emptyStyle}>{error ? "—" : "暂无成交"}</div>
+        <div style={emptyStyle}>{error ? "—" : "暂无符合条件的成交"}</div>
       ) : (
         <div style={wrapStyle}>
           <table style={tableStyle}>
@@ -137,34 +153,28 @@ export default function OrderFlow() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((m, i) => {
-                const buy = (m.side || "").toLowerCase().includes("buy");
-                const amt = m.amount || m.filledAmount || 0;
-                const ts = m.timestamp || m.createdAt;
-                const addr = m.taker || m.maker || "";
-                return (
-                  <tr key={m.id || i} style={tdRowStyle}>
-                    <td style={timeCellStyle}>
-                      {ts ? new Date(ts).toLocaleTimeString() : "—"}
-                    </td>
-                    <td style={mktCellStyle}>{m.marketTitle || m.marketId || "—"}</td>
-                    <td style={sideCellStyle}>
-                      <span style={{ color: buy ? T.accent : T.red, fontWeight: 600 }}>
-                        {buy ? "BUY" : "SELL"}
-                      </span>
-                    </td>
-                    <td style={{ ...amtCellBase, color: amt >= 5000 ? T.yellow : T.text }}>
-                      ${amt.toLocaleString()}
-                    </td>
-                    <td style={priceCellStyle}>
-                      {m.price != null ? `${(m.price * 100).toFixed(1)}¢` : "—"}
-                    </td>
-                    <td style={addrCellStyle}>
-                      {addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "—"}
-                    </td>
-                  </tr>
-                );
-              })}
+              {filtered.map((r) => (
+                <tr key={r.id} style={tdRowStyle}>
+                  <td style={timeCellStyle}>
+                    {r.ts ? new Date(r.ts).toLocaleTimeString() : "—"}
+                  </td>
+                  <td style={mktCellStyle}>{r.marketLabel}</td>
+                  <td style={sideCellStyle}>
+                    <span style={{ color: r.isMaker ? T.blue : T.accent, fontWeight: 600 }}>
+                      {r.isMaker ? "MAKER" : "TAKER"}
+                    </span>
+                  </td>
+                  <td style={{ ...amtCellBase, color: r.usd >= 5000 ? T.yellow : T.text }}>
+                    ${r.usd.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </td>
+                  <td style={priceCellStyle}>
+                    {r.price != null ? `${(r.price * 100).toFixed(1)}¢` : "—"}
+                  </td>
+                  <td style={addrCellStyle}>
+                    {r.addr ? `${r.addr.slice(0, 6)}…${r.addr.slice(-4)}` : "—"}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

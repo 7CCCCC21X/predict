@@ -25,13 +25,13 @@ const rankCellBase = { padding: "10px 12px", fontWeight: 700, width: 36 };
 const titleCellStyle = {
   padding: "10px 12px",
   color: T.text,
-  maxWidth: 280,
+  maxWidth: 260,
   overflow: "hidden",
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
 };
 const volCellStyle = { padding: "10px 12px", color: T.accent, fontWeight: 600 };
-const badgeCellStyle = { padding: "10px 12px" };
+const subCellStyle = { padding: "10px 12px", color: T.textDim, fontSize: 11 };
 const errorStyle = {
   padding: 12,
   marginBottom: 12,
@@ -49,11 +49,29 @@ const emptyStyle = {
   fontFamily: mono,
   fontSize: 12,
 };
+const hintStyle = {
+  marginBottom: 12,
+  padding: 10,
+  background: `${T.blue}08`,
+  border: `1px solid ${T.blue}20`,
+  borderRadius: 6,
+  fontSize: 10,
+  fontFamily: mono,
+  color: T.blue,
+};
 
-const HEADERS = ["#", "市场", "交易量", "成交数"];
+const HEADERS = ["#", "市场", "总成交 $", "24h $", "流动性 $"];
+const STATS_FETCH_LIMIT = 30;
+
+function fmt(n) {
+  if (n == null || !isFinite(n)) return "—";
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
+  return `$${Math.round(n)}`;
+}
 
 export default function VolumeRanking() {
-  const [markets, setMarkets] = useState([]);
+  const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -61,11 +79,41 @@ export default function VolumeRanking() {
     const ctrl = new AbortController();
     (async () => {
       try {
-        const data = await apiFetch("/v1/markets?first=100", {
-          signal: ctrl.signal,
-        });
+        const listData = await apiFetch("/v1/markets?first=100", { signal: ctrl.signal });
         if (ctrl.signal.aborted) return;
-        setMarkets(unwrapList(data));
+        const markets = unwrapList(listData);
+        const openMarkets = markets
+          .filter((m) => m.tradingStatus === "OPEN")
+          .slice(0, STATS_FETCH_LIMIT);
+        const source = openMarkets.length > 0 ? openMarkets : markets.slice(0, STATS_FETCH_LIMIT);
+
+        const withStats = await Promise.all(
+          source.map(async (m) => {
+            try {
+              const s = await apiFetch(`/v1/markets/${m.id}/stats`, { signal: ctrl.signal });
+              const stats = s?.data || {};
+              return {
+                id: m.id,
+                title: m.question || m.title || `#${m.id}`,
+                tradingStatus: m.tradingStatus,
+                volumeTotalUsd: Number(stats.volumeTotalUsd) || 0,
+                volume24hUsd: Number(stats.volume24hUsd) || 0,
+                totalLiquidityUsd: Number(stats.totalLiquidityUsd) || 0,
+              };
+            } catch {
+              return {
+                id: m.id,
+                title: m.question || m.title || `#${m.id}`,
+                tradingStatus: m.tradingStatus,
+                volumeTotalUsd: 0,
+                volume24hUsd: 0,
+                totalLiquidityUsd: 0,
+              };
+            }
+          })
+        );
+        if (ctrl.signal.aborted) return;
+        setRows(withStats);
       } catch (e) {
         if (e.name === "AbortError") return;
         setError(e.message);
@@ -77,14 +125,17 @@ export default function VolumeRanking() {
   }, []);
 
   const sorted = useMemo(
-    () => [...markets].sort((a, b) => (b.volume || 0) - (a.volume || 0)),
-    [markets]
+    () => [...rows].sort((a, b) => b.volumeTotalUsd - a.volumeTotalUsd),
+    [rows]
   );
 
   if (loading) return <Spinner />;
 
   return (
     <div>
+      <div style={hintStyle}>
+        取前 {STATS_FETCH_LIMIT} 个活跃市场,并行调用 /v1/markets/:id/stats 获取成交量,按 volumeTotalUsd 排序
+      </div>
       {error && <div style={errorStyle}>加载失败: {error}</div>}
       {sorted.length === 0 ? (
         <div style={emptyStyle}>{error ? "—" : "暂无数据"}</div>
@@ -101,16 +152,20 @@ export default function VolumeRanking() {
               </tr>
             </thead>
             <tbody>
-              {sorted.map((m, i) => (
-                <tr key={m.id || i} style={tdRowStyle}>
+              {sorted.map((r, i) => (
+                <tr key={r.id} style={tdRowStyle}>
                   <td style={{ ...rankCellBase, color: i < 3 ? T.accent : T.textDim }}>
                     {i + 1}
                   </td>
-                  <td style={titleCellStyle}>{m.title || m.question || m.id}</td>
-                  <td style={volCellStyle}>${(m.volume || 0).toLocaleString()}</td>
-                  <td style={badgeCellStyle}>
-                    <Badge>{m.stats?.trades || "—"} trades</Badge>
+                  <td style={titleCellStyle}>
+                    {r.title}{" "}
+                    <Badge color={r.tradingStatus === "OPEN" ? T.accent : T.textMuted}>
+                      {r.tradingStatus || "—"}
+                    </Badge>
                   </td>
+                  <td style={volCellStyle}>{fmt(r.volumeTotalUsd)}</td>
+                  <td style={subCellStyle}>{fmt(r.volume24hUsd)}</td>
+                  <td style={subCellStyle}>{fmt(r.totalLiquidityUsd)}</td>
                 </tr>
               ))}
             </tbody>

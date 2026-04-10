@@ -70,7 +70,10 @@ export default function WalletLookup() {
     setLoading(true);
     setError(null);
     try {
-      const data = await apiFetch(`/positions/${encodeURIComponent(q)}`, { signal: ctrl.signal });
+      const data = await apiFetch(
+      `/v1/positions?first=50&signerAddress=${encodeURIComponent(q)}`,
+      { signal: ctrl.signal }
+    );
       if (ctrl.signal.aborted) return;
       setPos(unwrapList(data));
     } catch (e) {

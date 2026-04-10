@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { apiFetch, unwrapList } from "../api";
 import { T, mono, sans } from "../theme";
-import { Pill, StatBox, Spinner } from "./ui";
+import { Pill, StatBox, Spinner, Badge } from "./ui";
 
 const toolbarStyle = {
   display: "flex",
@@ -53,44 +53,83 @@ const emptyStyle = {
 const listStyle = { display: "flex", flexDirection: "column", gap: 6 };
 const cardStyle = {
   display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
+  flexDirection: "column",
+  gap: 6,
   padding: "12px 16px",
   background: T.surfaceAlt,
   border: `1px solid ${T.border}`,
   borderRadius: 8,
 };
-const cardInner = { flex: 1, minWidth: 0 };
+const cardHeaderRow = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: 12,
+};
 const titleStyle = {
   fontSize: 13,
   color: T.text,
   fontFamily: sans,
   fontWeight: 500,
-  whiteSpace: "nowrap",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
+  flex: 1,
+  minWidth: 0,
 };
-const outcomesRowStyle = { display: "flex", gap: 5, marginTop: 5, flexWrap: "wrap" };
+const metaRow = {
+  display: "flex",
+  gap: 6,
+  alignItems: "center",
+  flexWrap: "wrap",
+  flexShrink: 0,
+};
+const subMetaRow = {
+  display: "flex",
+  gap: 8,
+  alignItems: "center",
+  fontSize: 10,
+  color: T.textMuted,
+  fontFamily: mono,
+};
+const outcomesRowStyle = { display: "flex", gap: 5, flexWrap: "wrap" };
 const outcomeChipBase = {
   fontSize: 10,
   fontFamily: mono,
-  padding: "2px 7px",
+  padding: "2px 8px",
   borderRadius: 4,
+  fontWeight: 600,
 };
-const volWrapStyle = { textAlign: "right", flexShrink: 0, marginLeft: 12 };
-const volStyle = { fontSize: 14, fontFamily: mono, fontWeight: 700, color: T.accent };
-const volLabelStyle = { fontSize: 9, color: T.textMuted, fontFamily: mono };
 
-function outcomeColors(i) {
-  if (i === 0) return { background: T.accentDim, color: T.accent };
-  if (i === 1) return { background: T.redDim, color: T.red };
+function outcomeStyle(status) {
+  if (status === "WON") return { background: T.accentDim, color: T.accent };
+  if (status === "LOST") return { background: T.redDim, color: T.red };
   return { background: `${T.blue}15`, color: T.blue };
+}
+
+function statusColor(tradingStatus) {
+  if (tradingStatus === "OPEN") return T.accent;
+  if (tradingStatus === "CLOSED") return T.textMuted;
+  return T.yellow;
+}
+
+function timeAgo(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  const diffMs = Date.now() - d.getTime();
+  const s = Math.floor(diffMs / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const day = Math.floor(h / 24);
+  if (day < 30) return `${day}d ago`;
+  return d.toLocaleDateString();
 }
 
 export default function MarketMonitor() {
   const [markets, setMarkets] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [sortBy, setSortBy] = useState("volume");
+  const [sortBy, setSortBy] = useState("newest");
+  const [statusFilter, setStatusFilter] = useState("OPEN");
   const [search, setSearch] = useState("");
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [error, setError] = useState(null);
@@ -103,7 +142,7 @@ export default function MarketMonitor() {
     setLoading(true);
     setError(null);
     try {
-      const data = await apiFetch("/v1/markets?first=50", { signal: ctrl.signal });
+      const data = await apiFetch("/v1/markets?first=100", { signal: ctrl.signal });
       if (ctrl.signal.aborted) return;
       setMarkets(unwrapList(data));
     } catch (e) {
@@ -125,32 +164,54 @@ export default function MarketMonitor() {
     return () => clearInterval(id);
   }, [autoRefresh, fetchMarkets]);
 
-  const sorted = useMemo(() => {
+  const filtered = useMemo(() => {
     let l = markets;
+    if (statusFilter !== "ALL") {
+      l = l.filter((m) => m.tradingStatus === statusFilter);
+    }
     if (search) {
       const q = search.toLowerCase();
-      l = l.filter((m) => (m.title || m.question || "").toLowerCase().includes(q));
+      l = l.filter(
+        (m) =>
+          (m.title || "").toLowerCase().includes(q) ||
+          (m.question || "").toLowerCase().includes(q) ||
+          (m.categorySlug || "").toLowerCase().includes(q)
+      );
     }
     const copy = [...l];
-    if (sortBy === "volume") copy.sort((a, b) => (b.volume || 0) - (a.volume || 0));
-    else if (sortBy === "newest") copy.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    if (sortBy === "newest") {
+      copy.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    } else if (sortBy === "oldest") {
+      copy.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+    }
     return copy;
-  }, [markets, sortBy, search]);
+  }, [markets, sortBy, search, statusFilter]);
+
+  const openCount = useMemo(
+    () => markets.filter((m) => m.tradingStatus === "OPEN").length,
+    [markets]
+  );
 
   return (
     <div>
       <div style={toolbarStyle}>
         <input
-          placeholder="搜索市场..."
+          placeholder="搜索市场 / question / category..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           style={searchInputStyle}
         />
-        <Pill active={sortBy === "volume"} onClick={() => setSortBy("volume")}>
-          交易量↓
+        <Pill active={statusFilter === "OPEN"} onClick={() => setStatusFilter("OPEN")}>
+          活跃
+        </Pill>
+        <Pill active={statusFilter === "CLOSED"} onClick={() => setStatusFilter("CLOSED")}>
+          已结算
+        </Pill>
+        <Pill active={statusFilter === "ALL"} onClick={() => setStatusFilter("ALL")}>
+          全部
         </Pill>
         <Pill active={sortBy === "newest"} onClick={() => setSortBy("newest")}>
-          最新
+          最新↓
         </Pill>
         <Pill active={autoRefresh} onClick={() => setAutoRefresh(!autoRefresh)}>
           自动刷新 {autoRefresh ? "ON" : "OFF"}
@@ -161,40 +222,61 @@ export default function MarketMonitor() {
       </div>
 
       <div style={statRowStyle}>
-        <StatBox label="总市场" value={markets.length} color={T.accent} />
-        <StatBox label="筛选" value={sorted.length} />
+        <StatBox label="总市场" value={markets.length} />
+        <StatBox label="活跃" value={openCount} color={T.accent} />
+        <StatBox label="筛选" value={filtered.length} color={T.yellow} />
       </div>
 
       {error && <div style={errorStyle}>加载失败: {error}</div>}
 
       {loading ? (
         <Spinner />
-      ) : sorted.length === 0 ? (
-        <div style={emptyStyle}>{error ? "—" : "暂无市场"}</div>
+      ) : filtered.length === 0 ? (
+        <div style={emptyStyle}>{error ? "—" : "没有符合条件的市场"}</div>
       ) : (
         <div style={listStyle}>
-          {sorted.map((m) => {
-            const outcomes = m.outcomes || m.options || [];
+          {filtered.map((m) => {
+            const outcomes = m.outcomes || [];
+            const label = m.question || m.title || `#${m.id}`;
             return (
-              <div key={m.id || m.marketId} style={cardStyle}>
-                <div style={cardInner}>
-                  <div style={titleStyle}>{m.title || m.question || m.id}</div>
-                  <div style={outcomesRowStyle}>
-                    {outcomes.slice(0, 4).map((o, i) => {
-                      const lbl = typeof o === "string" ? o : o.name || o.title || `#${i + 1}`;
-                      const pr = typeof o === "object" ? o.price : null;
-                      return (
-                        <span key={i} style={{ ...outcomeChipBase, ...outcomeColors(i) }}>
-                          {lbl}
-                          {pr != null ? ` ${(pr * 100).toFixed(1)}¢` : ""}
-                        </span>
-                      );
-                    })}
+              <div key={m.id || m.conditionId} style={cardStyle}>
+                <div style={cardHeaderRow}>
+                  <div style={titleStyle}>{label}</div>
+                  <div style={metaRow}>
+                    <Badge color={statusColor(m.tradingStatus)}>
+                      {m.tradingStatus || "—"}
+                    </Badge>
+                    {m.marketVariant && m.marketVariant !== "DEFAULT" && (
+                      <Badge color={T.blue}>{m.marketVariant}</Badge>
+                    )}
                   </div>
                 </div>
-                <div style={volWrapStyle}>
-                  <div style={volStyle}>${((m.volume || 0) / 1000).toFixed(0)}K</div>
-                  <div style={volLabelStyle}>VOL</div>
+                <div style={outcomesRowStyle}>
+                  {outcomes.slice(0, 6).map((o, i) => (
+                    <span key={i} style={{ ...outcomeChipBase, ...outcomeStyle(o.status) }}>
+                      {o.name}
+                      {o.status && o.status !== "UNRESOLVED" ? ` · ${o.status}` : ""}
+                    </span>
+                  ))}
+                </div>
+                <div style={subMetaRow}>
+                  <span>#{m.id}</span>
+                  <span>·</span>
+                  <span>{timeAgo(m.createdAt)}</span>
+                  {m.categorySlug && (
+                    <>
+                      <span>·</span>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {m.categorySlug}
+                      </span>
+                    </>
+                  )}
+                  {m.feeRateBps != null && (
+                    <>
+                      <span>·</span>
+                      <span>fee {(m.feeRateBps / 100).toFixed(2)}%</span>
+                    </>
+                  )}
                 </div>
               </div>
             );
